@@ -17,7 +17,8 @@ extern "C"
 #define av_frame_free avcodec_free_frame
 #endif
 
-void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame) {
+void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame)
+{
   FILE *pFile;
   char szFilename[32];
   int  y;
@@ -39,7 +40,8 @@ void SaveFrame(AVFrame *pFrame, int width, int height, int iFrame) {
   fclose(pFile);
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
   // Initalizing these to NULL prevents segfaults!
   AVFormatContext   *pFormatCtx = NULL;
   int               i, videoStream;
@@ -54,23 +56,24 @@ int main(int argc, char *argv[]) {
   uint8_t           *buffer = NULL;
   struct SwsContext *sws_ctx = NULL;
 
-  if(argc < 2) {
-    LOG(ERROR,"No imput file");
-    return -1;
-  }
+  if(argc < 2)
+      {
+        LOG(ERROR,"No imput file");
+        return -1;
+      }
   // Open video file
   if(avformat_open_input(&pFormatCtx, argv[1], NULL, NULL)!=0)
-  {
-      LOG(ERROR,"Couldn't open file");
-      return -1;
-  }
+      {
+          LOG(ERROR,"Couldn't open file");
+          return -1;
+      }
 
   // Retrieve stream information
   if(avformat_find_stream_info(pFormatCtx, NULL)<0)
-  {
-      LOG(ERROR,"Couldn't find stream information");
-      return -1;
-  }
+      {
+          LOG(ERROR,"Couldn't find stream information");
+          return -1;
+      }
 
   // Dump information about file onto standard error
   av_dump_format(pFormatCtx, 0, argv[1], 0);
@@ -78,45 +81,47 @@ int main(int argc, char *argv[]) {
   // Find the first video stream
   videoStream=-1;
   for(i=0; i<pFormatCtx->nb_streams; i++)
-    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO) {
+    if(pFormatCtx->streams[i]->codecpar->codec_type==AVMEDIA_TYPE_VIDEO)
+    {
       videoStream=i;
       break;
     }
   if(videoStream==-1)
-  {
-      LOG(ERROR,"Didn't find a video stream");
-      return -1;
-  }
+      {
+          LOG(ERROR,"Didn't find a video stream");
+          return -1;
+      }
 
   // Get a pointer to the codec context for the video stream
   pCodecCtxOrig = avcodec_alloc_context3(NULL);
   avcodec_parameters_to_context(pCodecCtxOrig,pFormatCtx->streams[videoStream]->codecpar);
   // Find the decoder for the video stream
   pCodec=avcodec_find_decoder(pCodecCtxOrig->codec_id);
-  if(pCodec==NULL) {
-    LOG(ERROR,"Unsupported codec!");
-    return -1; // Codec not found
-  }
+  if(pCodec==NULL)
+      {
+        LOG(ERROR,"Unsupported codec!");
+        return -1; // Codec not found
+      }
   // Copy context
   pCodecCtx = avcodec_alloc_context3(pCodec);
   avcodec_parameters_to_context(pCodecCtx, pFormatCtx->streams[videoStream]->codecpar);
 
   // Open codec
   if(avcodec_open2(pCodecCtx, pCodec, NULL)<0)
-  {
-      LOG(ERROR,"Could not open codec");
-      return -1;
-  }
+      {
+          LOG(ERROR,"Could not open codec");
+          return -1;
+      }
   // Allocate video frame
   pFrame=av_frame_alloc();
 
   // Allocate an AVFrame structure
   pFrameRGB=av_frame_alloc();
   if(pFrameRGB==NULL)
-  {
-      LOG(ERROR,"Allocate an AVFrame structure failed");
-      return -1;
-  }
+      {
+          LOG(ERROR,"Allocate an AVFrame structure failed");
+          return -1;
+      }
 
   // Determine required buffer size and allocate buffer
   numBytes=av_image_get_buffer_size(AV_PIX_FMT_RGB24, pCodecCtx->width,
@@ -144,9 +149,11 @@ int main(int argc, char *argv[]) {
 
   // Read frames and save first five frames to disk
   i=0;
-  while(av_read_frame(pFormatCtx, &packet)>=0) {
+  while(av_read_frame(pFormatCtx, &packet)>=0)
+  {
     // Is this a packet from the video stream?
-    if(packet.stream_index==videoStream) {
+    if(packet.stream_index==videoStream)
+    {
       // Decode video frame
         avcodec_send_packet(pCodecCtx,&packet);
         frameFinished = avcodec_receive_frame(pCodecCtx,pFrame);
@@ -154,15 +161,14 @@ int main(int argc, char *argv[]) {
       // Did we get a video frame?
       if(frameFinished == 0)
       {
-    // Convert the image from its native format to RGB
-    sws_scale(sws_ctx, (uint8_t const * const *)pFrame->data,
+          // Convert the image from its native format to RGB
+          sws_scale(sws_ctx, (uint8_t const * const *)pFrame->data,
           pFrame->linesize, 0, pCodecCtx->height,
           pFrameRGB->data, pFrameRGB->linesize);
 
-    // Save the frame to disk
-    if(++i<=5)
-      SaveFrame(pFrameRGB, pCodecCtx->width, pCodecCtx->height,
-            i);
+         // Save the frame to disk
+          if(++i<=5)
+            SaveFrame(pFrameRGB, pCodecCtx->width, pCodecCtx->height,i);
       }
     }
 
