@@ -1,1 +1,2 @@
-# ffplay-king
+2023-09-06
+	根据ffmpeg官方教程
