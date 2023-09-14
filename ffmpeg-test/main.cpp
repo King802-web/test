@@ -5,6 +5,7 @@
 #include <iostream>
 extern "C"
 {
+#include "libavutil/avstring.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libavutil/pixfmt.h"
@@ -12,6 +13,7 @@ extern "C"
 #include <libswscale/swscale.h>
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_thread.h"
+//#include "SDL2/SDL_render.h"
 }
 
 #ifdef __MINGW32__
@@ -19,8 +21,8 @@ extern "C"
 #endif
 // compatibility with newer API
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(55,28,1)
-#define av_frame_alloc avcodec_alloc_frame
-#define av_frame_free avcodec_free_frame
+//#define av_frame_alloc avcodec_alloc_frame
+//#define av_frame_free  avcodec_free_frame
 #endif
 
 #define SDL_AUDIO_BUFFER_SIZE 1024
@@ -28,6 +30,8 @@ extern "C"
 
 #define MAX_AUDIO_SIZE (5 * 16 * 1024)
 #define MAX_VIDEO_SIZE (5 * 256 * 1024)
+#define MAX_AUDIOQ_SIZE (5 * 16 * 1024)
+#define MAX_VIDEOQ_SIZE (5 * 256 * 1024)
 
 #define FF_REFRESH_EVENT (SDL_USEREVENT)
 #define FF_QUIT_EVENT (SDL_USEREVENT + 1)
@@ -45,7 +49,9 @@ typedef struct PacketQueue
 
 typedef struct VideoPicture
 {
-    SDL_Texture     *bmp;
+    //SDL_Window      *windows;
+    SDL_Renderer    *render;
+    SDL_Texture     *texture;
     int             width,height; //source height & width
     int             allocated;
 }VideoPicture;
@@ -77,6 +83,10 @@ typedef struct VideoState
     SDL_Thread      *video_tid;
     char            fileName[1024];
     int             quit;
+    //SDL_Window      *window_;
+    //SDL_Renderer    *renderer;
+    //SDL_Texture     *texture;
+
 }VideoState;
 
 //SDL_Surface         *screen;
@@ -296,7 +306,7 @@ void video_display(VideoState* is)
     int            w,h,x,y,i,SDL_w,SDL_h;
 
     vp = &is->pictq[is->pictq_rindex];
-    if(vp->bmp)
+    if(vp->render)
     {
         if(is->video_ctx->sample_aspect_ratio.num == 0)
         {
@@ -327,14 +337,15 @@ void video_display(VideoState* is)
         rect.h = h;
         SDL_LockMutex(screen_mutex);
         //SDL_DisplayYUVOverlay(vp->bmp, &rect);
-        SDL_Renderer* renderer = SDL_GetRenderer(screen);
+        //SDL_Renderer* renderer = SDL_GetRenderer(screen);
+        vp->render = SDL_GetRenderer(screen);
         //SDL_Texture*  texture = SDL_CreateTextureFromSurface(renderer,vp->bmp);
-        SDL_Texture* texture = SDL_CreateTexture(renderer,SDL_PIXELFORMAT_YV12,
+        SDL_Texture* texture = SDL_CreateTexture(vp->render,SDL_PIXELFORMAT_YV12,
                                                           SDL_TEXTUREACCESS_STREAMING,
                                                           w,h);
-        SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer,texture,NULL,&rect);
-        SDL_RenderPresent(renderer);
+        SDL_RenderClear(vp->render);
+        SDL_RenderCopy(vp->render,texture,NULL,&rect);
+        SDL_RenderPresent(vp->render);
         //SDL_DestroyTexture(texture);
         SDL_UnlockMutex(screen_mutex);
     }
@@ -391,17 +402,19 @@ void alloc_picture(void *userdata)
   VideoPicture *vp;
 
   vp = &is->pictq[is->pictq_windex];
-  if(vp->bmp)
+  if(vp->texture)
   {
     // we already have one make another, bigger/smaller
-    SDL_FreeYUVOverlay(vp->bmp);
+    //SDL_FreeYUVOverlay(vp->bmp);
+      SDL_DestroyTexture(vp->texture);
   }
   // Allocate a place to put our YUV image on that screen
   SDL_LockMutex(screen_mutex);
-  vp->bmp = SDL_CreateYUVOverlay(is->video_ctx->width,
-                 is->video_ctx->height,
-                 SDL_YV12_OVERLAY,
-                 screen);
+  vp->texture = SDL_CreateTexture(vp->render,
+                                SDL_PIXELFORMAT_YV12,
+                                SDL_TEXTUREACCESS_STREAMING,
+                                is->video_ctx->width,
+                                is->video_ctx->height);
   SDL_UnlockMutex(screen_mutex);
 
   vp->width = is->video_ctx->width;
@@ -412,10 +425,10 @@ void alloc_picture(void *userdata)
 
 int queue_picture(VideoState *is, AVFrame *pFrame)
 {
-
   VideoPicture *vp;
   int dst_pix_fmt;
-  AVPicture pict;
+  //AVPicture pict;
+  //AVPictureStructure pict;
 
   /* wait until we have space for a new pic */
   SDL_LockMutex(is->pictq_mutex);
@@ -432,7 +445,7 @@ int queue_picture(VideoState *is, AVFrame *pFrame)
   vp = &is->pictq[is->pictq_windex];
 
   /* allocate or resize the buffer! */
-  if(!vp->bmp ||
+  if(!vp->texture ||
      vp->width != is->video_ctx->width ||
      vp->height != is->video_ctx->height)
   {
@@ -445,39 +458,44 @@ int queue_picture(VideoState *is, AVFrame *pFrame)
       return -1;
     }
   }
-
   /* We have a place to put our picture on the queue */
-
-  if(vp->bmp)
+  if(vp->render)
   {
+      if(vp->texture)
+      {
 
-    SDL_LockYUVOverlay(vp->bmp);
+        SDL_LockTexture(vp->texture,NULL,NULL,NULL);
 
-    dst_pix_fmt = AV_PIX_FMT_YUV420P;
-    /* point pict at the queue */
+        dst_pix_fmt = AV_PIX_FMT_YUV420P;
 
-    pict.data[0] = vp->bmp->pixels[0];
-    pict.data[1] = vp->bmp->pixels[2];
-    pict.data[2] = vp->bmp->pixels[1];
+        void* pixels;
+        int pitch;
 
-    pict.linesize[0] = vp->bmp->pitches[0];
-    pict.linesize[1] = vp->bmp->pitches[2];
-    pict.linesize[2] = vp->bmp->pitches[1];
+        SDL_LockTexture(vp->texture,NULL,&pixels,&pitch);
+        uint8_t *pict_data[AV_NUM_DATA_POINTERS] = { 0 };
+        int pict_linesize[AV_NUM_DATA_POINTERS];
+        /* point pict at the queue */
+        pict_data[0] = (uint8_t *)pixels;
+        pict_data[1] = (uint8_t *)pixels + pitch * vp->height;
+        pict_data[2] = (uint8_t *)pixels + pitch * vp->height * 5 / 4;
+        pict_linesize[0] = pitch;
+        pict_linesize[1] = pitch / 2;
+        pict_linesize[2] = pitch / 2;
 
-    // Convert the image into YUV format that SDL uses
-    sws_scale(is->sws_ctx, (uint8_t const * const *)pFrame->data,
-          pFrame->linesize, 0, is->video_ctx->height,
-          pict.data, pict.linesize);
+        sws_scale(is->sws_ctx,(uint8_t const* const*)pFrame->data,
+                  pFrame->linesize,0,is->video_ctx->height,
+                  pict_data,pict_linesize);
 
-    SDL_UnlockYUVOverlay(vp->bmp);
-    /* now we inform our display thread that we have a pic ready */
-    if(++is->pictq_windex == VIDEO_PICTURE_QUEUE_SIZE)
-    {
-      is->pictq_windex = 0;
-    }
-    SDL_LockMutex(is->pictq_mutex);
-    is->pictq_size++;
-    SDL_UnlockMutex(is->pictq_mutex);
+        SDL_UnlockTexture(vp->texture);
+        /* now we inform our display thread that we have a pic ready */
+        if(++is->pictq_windex == VIDEO_PICTURE_QUEUE_SIZE)
+        {
+          is->pictq_windex = 0;
+        }
+        SDL_LockMutex(is->pictq_mutex);
+        is->pictq_size++;
+        SDL_UnlockMutex(is->pictq_mutex);
+      }
   }
   return 0;
 }
@@ -490,17 +508,23 @@ int video_thread(void *arg) {
 
   pFrame = av_frame_alloc();
 
-  for(;;) {
-    if(packet_queue_get(&is->video_q, packet, 1) < 0) {
+  for(;;)
+  {
+    if(packet_queue_get(&is->video_q, packet, 1) < 0)
+    {
       // means we quit getting packets
       break;
     }
     // Decode video frame
-    avcodec_decode_video2(is->video_ctx, pFrame, &frameFinished, packet);
-    // Did we get a video frame?
-    if(frameFinished) {
-      if(queue_picture(is, pFrame) < 0) {
-    break;
+    avcodec_send_packet(is->video_ctx, packet);
+
+    // Receive decoded frames from the decoder
+    while (avcodec_receive_frame(is->video_ctx, pFrame) == 0)
+    {
+      // Process the decoded frame
+      if (queue_picture(is, pFrame) < 0)
+      {
+        break;
       }
     }
     av_packet_unref(packet);
@@ -513,21 +537,21 @@ int stream_component_open(VideoState *is, int stream_index) {
 
   AVFormatContext *pFormatCtx = is->pFormatCtx;
   AVCodecContext *codecCtx = NULL;
-  AVCodec *codec = NULL;
+  const AVCodec *codec = NULL;
   SDL_AudioSpec wanted_spec, spec;
 
   if(stream_index < 0 || stream_index >= pFormatCtx->nb_streams) {
     return -1;
   }
 
-  codec = avcodec_find_decoder(pFormatCtx->streams[stream_index]->codec->codec_id);
+  codec = avcodec_find_decoder(pFormatCtx->streams[stream_index]->codecpar->codec_id);
   if(!codec) {
     fprintf(stderr, "Unsupported codec!\n");
     return -1;
   }
 
   codecCtx = avcodec_alloc_context3(codec);
-  if(avcodec_copy_context(codecCtx, pFormatCtx->streams[stream_index]->codec) != 0) {
+  if(avcodec_parameters_to_context(codecCtx, pFormatCtx->streams[stream_index]->codecpar) < 0) {
     fprintf(stderr, "Couldn't copy codec context");
     return -1; // Error copying codec context
   }
@@ -569,7 +593,7 @@ int stream_component_open(VideoState *is, int stream_index) {
     is->video_st = pFormatCtx->streams[stream_index];
     is->video_ctx = codecCtx;
     packet_queue_init(&is->video_q);
-    is->video_tid = SDL_CreateThread(video_thread, is);
+    is->video_tid = SDL_CreateThread(video_thread,"video_thread", is);
     is->sws_ctx = sws_getContext(is->video_ctx->width, is->video_ctx->height,
                  is->video_ctx->pix_fmt, is->video_ctx->width,
                  is->video_ctx->height, AV_PIX_FMT_YUV420P,
@@ -597,7 +621,7 @@ int decode_thread(void *arg) {
   global_video_state = is;
 
   // Open video file
-  if(avformat_open_input(&pFormatCtx, is->filename, NULL, NULL)!=0)
+  if(avformat_open_input(&pFormatCtx, is->fileName, NULL, NULL)!=0)
     return -1; // Couldn't open file
 
   is->pFormatCtx = pFormatCtx;
@@ -677,13 +701,15 @@ int decode_thread(void *arg) {
   return 0;
 }
 
+
+
 int main(int argc, char *argv[]) {
 
   SDL_Event       event;
 
   VideoState      *is;
 
-  is = av_mallocz(sizeof(VideoState));
+  is = (VideoState*)av_mallocz(sizeof(VideoState));
 
   if(argc < 2) {
     fprintf(stderr, "Usage: test <file>\n");
@@ -695,10 +721,10 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "Could not initialize SDL - %s\n", SDL_GetError());
     exit(1);
   }
-
+   screen = SDL_CreateWindow("video player",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,800,600,SDL_WINDOW_OPENGL);
   // Make a screen to put our video
 #ifndef __DARWIN__
-        screen = SDL_SetVideoMode(640, 480, 0, 0);
+        //screen = SDL_SetVideoMode(640, 480, 0, 0);
 #else
         screen = SDL_SetVideoMode(640, 480, 24, 0);
 #endif
@@ -716,7 +742,7 @@ int main(int argc, char *argv[]) {
 
   schedule_refresh(is, 40);
 
-  is->parse_tid = SDL_CreateThread(decode_thread, is);
+  is->parse_tid = SDL_CreateThread(decode_thread,"decode_thread", is);
   if(!is->parse_tid) {
     av_free(is);
     return -1;
