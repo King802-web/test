@@ -39,7 +39,7 @@ int main(int argc, char* argv[])
 
     FILE                     *fp_yuv;
 
-    avformat_network_init();
+    //avformat_network_init();
     pFormatCtx = avformat_alloc_context();
 
     if(avformat_open_input(&pFormatCtx,argv[1],NULL,NULL) != 0)
@@ -202,46 +202,6 @@ int main(int argc, char* argv[])
             }
         }
         av_packet_unref(packet);
-    }
-    while (1)
-    {
-        ret = avcodec_send_packet(pCodecCtx,packet);
-        if(ret < 0)
-        {
-            LOG(ERROR,"decodec: send packet failed ");
-            break;
-        }else
-        {
-            ret = avcodec_receive_frame(pCodecCtx,pFrame);
-            if(ret < 0)
-                break;
-            if(!got_picture)
-                break;
-            sws_scale(img_convert_ctx,
-                      (const unsigned char* const*)pFrame->data,
-                      pFrame->linesize,
-                      0,
-                      pCodecCtx->height,
-                      pFrameYUV->data,
-                      pFrameYUV->linesize);
-
-#if OUTPUT_YUV420P
-            int y_size = pCodecCtx->width * pCodecCtx->height;
-            fwrite(pFrameYUV->data[0],1,y_size,fp_yuv);
-            fwrite(pFrameYUV->data[1],1,y_size/4,fp_yuv);
-            fwrite(pFrameYUV->data[2],1,y_size/4,fp_yuv);
-#endif
-            SDL_UpdateYUVTexture(texture,
-                                &rect,
-                                pFrameYUV->data[0],pFrameYUV->linesize[0],
-                                pFrameYUV->data[1],pFrameYUV->linesize[1],
-                                pFrameYUV->data[2],pFrameYUV->linesize[2]);
-            SDL_RenderClear(render);
-            SDL_RenderCopy(render,texture,NULL,&rect);
-            SDL_RenderPresent(render);
-
-            SDL_Delay(40);
-        }
     }
         sws_freeContext(img_convert_ctx);
 #if OUTPUT_YUV420P
