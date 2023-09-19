@@ -61,7 +61,7 @@ int sfp_refresh_thread(void* opaque)
             event.type = SFM_REFRESH_EVENT;
             SDL_PushEvent(&event);
         }
-        SDL_Delay(24);
+        SDL_Delay(40);
     }
     thread_exit = 0;
     thread_pause = 0;
@@ -70,7 +70,6 @@ int sfp_refresh_thread(void* opaque)
     SDL_PushEvent(&event);
     return 0;
 }
-
 
 #undef main
 int main(int argc, char* argv[])
@@ -251,77 +250,20 @@ int main(int argc, char* argv[])
                 SDL_RenderClear(render);
                 SDL_RenderCopy(render,texture,NULL,&rect);
                 SDL_RenderPresent(render);
-                SDL_Delay(24);
+                SDL_Delay(40);
             }
             av_packet_unref(packet);
         }else if(event.type == SDL_KEYDOWN)
         {
             if(event.key.keysym.sym == SDLK_SPACE)
-                thread_pause =! thread_pause;
+                thread_pause = !thread_pause;
         }else if(event.type == SDL_QUIT)
             thread_exit = 1;
         else if(event.type == SFM_BREAK_EVENT)
             break;
     }
-
-
-
-
-//    while(av_read_frame(pFormatCtx,packet) >= 0)
-//    {
-//        if(packet->stream_index == videodex)
-//        {
-//            ret = avcodec_send_packet(pCodecCtx,packet);
-//            if(ret < 0)
-//            {
-//                LOG(ERROR,"decodec: send packet failed ");
-//                break;
-//            }else
-//            {
-//                ret = avcodec_receive_frame(pCodecCtx,pFrame);
-//                if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-//                {
-//                    LOG(WARN,"need more data or EOF");
-//                }else if(ret < 0)
-//                {
-//                    LOG(ERROR,"decodec: failed");
-//                }else
-//                {
-//                    //解码成功
-//                    got_picture = 1;
-//                }
-//            }
-//            if(got_picture)
-//            {
-//                sws_scale(img_convert_ctx,
-//                          (const unsigned char* const*)pFrame->data,
-//                          pFrame->linesize,
-//                          0,
-//                          pCodecCtx->height,
-//                          pFrameYUV->data,
-//                          pFrameYUV->linesize);
-
-//                SDL_UpdateYUVTexture(texture,
-//                                    &rect,
-//                                    pFrameYUV->data[0],pFrameYUV->linesize[0],
-//                                    pFrameYUV->data[1],pFrameYUV->linesize[1],
-//                                    pFrameYUV->data[2],pFrameYUV->linesize[2]);
-
-//                SDL_RenderClear(render);
-//                SDL_RenderCopy(render,texture,NULL,&rect);
-//                SDL_RenderPresent(render);
-
-//                SDL_Delay(40);
-//            }
-//        }
-//        av_packet_unref(packet);
-//    }
-
-
     sws_freeContext(img_convert_ctx);
-
     SDL_Quit();
-
     av_frame_free(&pFrameYUV);
     av_frame_free(&pFrame);
     avcodec_close(pCodecCtx);
@@ -329,13 +271,6 @@ int main(int argc, char* argv[])
 
     return 0;
 }
-
-
-
-
-
-
-
 
 
 
